@@ -9,27 +9,56 @@
 </head>
 
 <body>
-
     <div id="el">
-        <h1>{{ content }} 和 {{ title }} 和 {{ title }}</h1>
-        <h2>{{ title }} 和</h2>
+        <h1>{{ title }} 和 {{ content }}</h1>
+        <input type="text" v-model="title" style="width: 250px; height: 20px; border: 1px solid red"
+            placeholder="输入测试绑定title">
+        <input type="text" v-model="title" style="width: 250px; height: 20px; border: 1px solid red"
+            placeholder="输入测试绑定title">
+
+        <div class="checkbox">
+            <label>
+                <input type="checkbox" v-model="lever">
+                Checkbox
+            </label>
+            <label>
+                <input type="checkbox" v-model="lever">
+                Checkbox
+            </label>
+        </div>
+
+        <h1>{{ more.m1 }}</h1>
+        <input type="text" v-model="more.m1" style="width: 250px; height: 20px; border: 1px solid red"
+            placeholder="输入测试绑定二级">
+
     </div>
 </body>
-<script>
-    
+
+<script type="text/javascript">
     const option = {
         el: "#el",
         data: {
-            title: '你好！',
-            content: '两种测试'
+            title: "你好！",
+            content: "两种测试",
+            lever: true,
+            more: {
+                m1: "哈哈",
+                m2: "呵呵"
+            }
         },
         method: {
-
+            //持续
         }
     }
 
     let mia = new MIA(option);
 
+    //定时器，无关核心
+    let step = 0;
+    let timer = setInterval(() => {
+        step += 1;
+        mia.data.content = step + "";
+    }, 1000)
 </script>
 
 </html>
