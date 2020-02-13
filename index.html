@@ -27,9 +27,30 @@
             </label>
         </div>
 
-        <h1>{{ more.m1 }}</h1>
-        <input type="text" v-model="more.m1" style="width: 250px; height: 20px; border: 1px solid red"
+        <h1>{{ more.m3 }}</h1>
+        <input type="text" v-model="more.m3" style="width: 250px; height: 20px; border: 1px solid red"
             placeholder="输入测试绑定二级">
+
+
+        <div class="radio">
+            <label>
+                <input type="radio" name="radio.r1" id="input" value="东瓜" v-model="radio.r1">
+                东瓜
+            </label>
+            <label>
+                <input type="radio" name="radio.r1" id="input" value="西瓜" v-model="radio.r1">
+                西瓜
+            </label>
+            <label>
+                <input type="radio" name="radio.r1" id="input" value="南瓜" v-model="radio.r1">
+                南瓜
+            </label>
+            <label>
+                <input type="radio" name="radio.r1" id="input" value="北瓜" v-model="radio.r1">
+                北瓜(我们那这样称呼南瓜)
+            </label>
+        </div>
+
 
     </div>
 </body>
@@ -44,6 +65,9 @@
             more: {
                 m1: "哈哈",
                 m2: "呵呵"
+            },
+            radio: {
+                r1: "西瓜"
             }
         },
         method: {

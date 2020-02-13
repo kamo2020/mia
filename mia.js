@@ -1,7 +1,7 @@
 class MIA {
     constructor(options) {
         this.data = options.data;
-        this.$root = document.querySelector(options.el);
+        this.root = document.querySelector(options.el);
         this.method = options.method;
         this.sp = new StrategyPool(this.data);
         this.initData(); //初始化
@@ -9,36 +9,36 @@ class MIA {
 
     initData() {
         // 遍历每个节点，将对应的处理策略注册到策略池中,通过this.data中的字段来引用这些处理策略
-        this.eachNode(this.$root);
-        // 修改this.data中每个字段以及子字段的set方法，当给这些字段设置值(=)的时候，触发策略池中的处理策略
-        this.defineProperty(this, "__skip__", this.data, "");
+        this.eachNode(this.root);
+        // 页面中出现的key，反向注册到其setter方法
+        let keys = Object.keys(this.sp.pool);
+        keys.forEach(key => { this.defineProperty(this.data, key) });
     }
 
-    defineProperty(data, key, value, fullKey) {
-        if (key !== "__skip__") {
-            let processors = this.sp.pool[fullKey];
-            Object.defineProperty(data, key, {
-                enumerable: true,
-                configurable: false,
-                set: function (newVal) {
-                    if (newVal === value) return;
-                    value = newVal;
-                    processors.forEach((processor) => { processor.do() })
-                },
-                get: function () {
-                    return value;
-                }
-            });
-            (processors) && (processors.forEach((processor) => { processor.init() }))
-        }
-        if (value instanceof Object) {
-            let keys = Object.keys(value);
-            for (let index = 0; index < keys.length; index++) {
-                const key = keys[index];
-                let newFullKey = (fullKey) ? fullKey + "." + key : key;
-                this.defineProperty(value, key, value[key], newFullKey);
+    defineProperty(data, complexKey) {
+        // 获取该复杂key所属的对象
+        let keyOfObj = StrategyPool.keyOfObj(data, complexKey);
+        // 获取该复杂key的最后一个key
+        let key = complexKey.split(".").pop();
+        // 获取value
+        let value = keyOfObj[key];
+        // 获取该复杂key对应的处理函数的数组
+        let processors = this.sp.pool[complexKey];
+        // 注册setter事件
+        Object.defineProperty(keyOfObj, key, {
+            enumerable: true,
+            configurable: false,
+            set: function (newVal) {
+                if (newVal === value) return;
+                value = newVal;
+                processors.forEach((processor) => { processor.do() })
+            },
+            get: function () {
+                return value;
             }
-        }
+        });
+        // 初始化,即执行所有处理函数
+        (processors) && (processors.forEach((processor) => { processor.init() }))
     }
 
     eachNode(node) {
@@ -69,7 +69,8 @@ class StrategyPool {
         this.pool = {};
         // 正则表达式
         this.exp = {
-            text: /\{\{\s?(.[^\}\s]*)\s?\}\}/
+            text: /\{\{\s?(.[^\}\s]*)\s?\}\}/,
+            key: /^[\w\d\._]*$/
         }
         // 引用MIA options中的data
         this.data = data;
@@ -82,6 +83,9 @@ class StrategyPool {
                 switch (element.type) {
                     case "checkbox":
                         return (packet) => { packet.node.checked = (StrategyPool.val(packet.data, packet.key)) ? "checked" : "" };
+                        break;
+                    case "radio":
+                        return (packet) => { packet.node.checked = (packet.node.value === StrategyPool.val(packet.data, packet.key)) ? "checked" : "" };
                         break;
                     default:
                         return (packet) => { packet.node.value = StrategyPool.val(packet.data, packet.key) };
@@ -99,6 +103,12 @@ class StrategyPool {
                             packet.node.checked = (StrategyPool.val(packet.data, packet.key)) ? "checked" : "";
                             packet.node.addEventListener("input", () => { StrategyPool.val(packet.data, packet.key, (packet.node.checked)) })
                         }
+                        break;
+                    case "radio":
+                        return (packet) => {
+                            packet.node.checked = (packet.node.value === StrategyPool.val(packet.data, packet.key)) ? "checked" : ""
+                            packet.node.addEventListener("input", () => { StrategyPool.val(packet.data, packet.key, packet.node.value) })
+                        };
                         break;
                     default:
                         return (packet) => {
@@ -119,7 +129,7 @@ class StrategyPool {
         let PcSorCollector = []; // 用于收集每个key对应的处理器集合，相当于二维数组
         while (this.exp.text.test(tempTxt)) {
             let key = this.exp.text.exec(tempTxt)[1].trim();
-            if (/^[\w\d\.]*$/.test(key)) {//如果是纯字母组合
+            if (this.exp.key.test(key)) {//如果是纯字母组合
                 let processors = (this.pool[key]) || (this.pool[key] = []);
                 keys.push(key);
                 PcSorCollector.push(processors);
@@ -135,31 +145,23 @@ class StrategyPool {
     }
 
     elementNodeRegister(element) {
-        let attributes = element.attributes;
-        let attrCollector = []; // 收集有用属性
-        for (let index = 0; index < attributes.length; index++) {
-            const attr = attributes[index];
-            if (this.specialAttrs.indexOf(attr.name) != -1) {
-                attrCollector.push({ index: index, name: attr.name, value: attr.value });
-            }
-        }
-
+        // 收集有用属性
+        let attrCollector = [].filter.call(element.attributes, (attr) => { return (this.specialAttrs.indexOf(attr.name) != -1) });
+        // 有用属性为0，结束
         if (attrCollector.length == 0) return;
 
-        for (let index = 0; index < attrCollector.length; index++) {
-            const key = attrCollector[index].value;
-            const name = attrCollector[index].name;
-
-            if (/^[\w\d\.]*$/.test(key)) {
+        attrCollector.forEach(attr => {
+            const key = attr.value; const name = attr.name;
+            if (this.exp.key.test(key)) {
                 let processors = (this.pool[key]) || (this.pool[key] = []);
                 processors.push(new ElementProcessor(key, element, this.data, this.specialMethod[name](element), this.specialInitMethod[name](element)));
             } else {//todo 运算符处理
                 console.log("运算符待处理");
             }
-        }
+        })
     }
 
-    // 通过复杂key(options.data.more.m1)给从options.data中对应的字段设置的值
+    // 通过复杂key(options.data.more.m1)从options.data中对应的字段设置的值
     static val(data, complexKey, newVal) {
         let hierarchy = complexKey.split(".");
         let value = data;
@@ -168,15 +170,22 @@ class StrategyPool {
                 const key = hierarchy[index];
                 value = value[key];
             }
-            return value;
+            return value || null;
         } else {
-            for (let index = 0; index < hierarchy.length - 1; index++) {
-                const key = hierarchy[index];
-                value = value[key];
-            }
-            value[hierarchy[hierarchy.length - 1]] = newVal;
+            StrategyPool.keyOfObj(data, complexKey)[hierarchy.pop()] = newVal;
             return newVal;
         }
+    }
+
+    // 获取该复杂key所在的对象
+    static keyOfObj(data, complexKey) {
+        let hierarchy = complexKey.split(".");
+        let value = data;
+        for (let index = 0; index < hierarchy.length - 1; index++) {
+            const key = hierarchy[index];
+            value = value[key];
+        }
+        return value;
     }
 }
 
@@ -186,19 +195,15 @@ class TextProcessor {
         this.textSource = text;
         this.keys = keys;
         this.data = data
-        this.nExps = [];
-        for (let index = 0; index < this.keys.length; index++) {
-            this.nExps[index] = new RegExp("\\{\\{\\s?(" + this.keys[index] + "[^\\}\\s]*)\\s?\\}\\}", "gm");
-        }
+        this.nExps = {};
+        this.keys.forEach(key => { this.nExps[key] = new RegExp("\\{\\{\\s?(" + key + "[^\\}\\s]*)\\s?\\}\\}", "gm") })
     }
 
     do() {
         let text = this.textSource;
-        for (let index = 0; index < this.keys.length; index++) {
-            const key = this.keys[index];
-            const nExp = this.nExps[index];
-            text = text.replace(nExp, StrategyPool.val(this.data, key));
-        }
+        this.keys.forEach(key => {
+            text = text.replace(this.nExps[key], StrategyPool.val(this.data, key) || "");
+        })
         this.node.textContent = text;
     }
 
