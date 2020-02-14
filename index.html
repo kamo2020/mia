@@ -33,6 +33,7 @@
 
 
         <div class="radio">
+            <span>选择的是{{ radio.r1 }}, 请选择</span>
             <label>
                 <input type="radio" name="radio.r1" id="input" value="东瓜" v-model="radio.r1">
                 东瓜
@@ -49,8 +50,14 @@
                 <input type="radio" name="radio.r1" id="input" value="北瓜" v-model="radio.r1">
                 北瓜(我们那这样称呼南瓜)
             </label>
+
         </div>
 
+        <button v-on:click="say1">方法测试</button>
+
+        <button v-on:click="say2('毛毛虫', '西瓜虫', 421, '蜜蜂')">带参方法测试</button>
+
+        <button v-on:click="say3(title, more.m1)">带引用对象参数方法测试</button>
 
     </div>
 </body>
@@ -71,7 +78,15 @@
             }
         },
         method: {
-            //持续
+            say1: function () {
+                alert("固定的无参方法调用");
+            },
+            say2: function (str1, str2, str3, str4) {
+                alert("参数1:" + str1 + ",参数2:" + str2 + ",参数3:" + str3 + ",参数4:" + str4);
+            },
+            say3: function (title, arg2) {
+                alert("标题:" + title + ",参数2:" + arg2);
+            }
         }
     }
 
