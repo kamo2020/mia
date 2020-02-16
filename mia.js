@@ -48,7 +48,7 @@ class MIA {
         // 数组变动的监视
         if (value instanceof Array) {
             ["push", "splice"].forEach(methodName => {
-                let method = Array.prototype[methodName];
+                let method = value[methodName];
                 method.__prefix__ = (keyPrefix) ? keyPrefix + "." : "";
                 value[methodName] = new Proxy(method, {
                     apply: (target, thisArg, argumentsList) => {
@@ -102,9 +102,12 @@ class StrategyPool {
             integerExp: /^\d+$/,
             stringExp: /^["']{1}(.+)["']{1}$/,
             referenceExp: /^[\w\d\._]+$/,
+            vFor: /v-for/,
+            vForExtract: /^[\s\(]*([^\)]*)[\s\)]*in\s*([\d\w_]*)\s?$/
         }
         // 特定属性
-        this.specialAttrs = ["v-model", "v-value", "v-text", "v-on"];
+        this.specialAttrs = ["v-for", "v-model", "v-value", "v-text", "v-on"];
+
         // 拥有该属性的元素的渲染方式，当options.data中的字段的值被修改后自动执行对应方法修改该元素的相关内容
         this.specialMethod = {
             "v-model": function (element) {
@@ -135,7 +138,6 @@ class StrategyPool {
                                 packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key).indexOf(packet.node.value) != -1) ? "checked" : "";
                                 packet.node.addEventListener("input", () => {
                                     let value = StrategyPool.val(packet.mia.data, packet.key);
-                                    value.__nowNode__ = packet.node;
                                     if (packet.node.checked) {
                                         value.push(packet.node.value);
                                     } else {
@@ -193,16 +195,24 @@ class StrategyPool {
         let attrCollector = [].filter.call(element.attributes, (attr) => { return (this.specialAttrs.indexOf(attr.name.split(":")[0]) != -1) });
         // 有用属性为0，结束
         if (attrCollector.length == 0) return;
+        // 排序，让某个属性优先执行比如v-for
+        attrCollector.sort((a, b) => { return (this.specialAttrs.indexOf(a.name.split(":")[0]) < this.specialAttrs.indexOf(b.name.split(":")[0])) ? -1 : 1 });
 
         attrCollector.forEach(attr => {
             const key = attr.value.trim(); const name = attr.name;
-            if (this.exp.method.test(name)) {// 如果通过该属性是v-on开头的，则直接注册相关事件即可
+            // 如果通过该属性是v-on开头的，则直接注册相关事件即可
+            if (this.exp.method.test(name)) {
                 this.methodProcess(key, name, element);
-            } else if (this.exp.key.test(key)) {// 如果该属性不是v-on开头的，并且该属性的值(key)只是简单的变量名，则为该元素创建对应的setter事件
+            } // 如果该属性是v-for则进行复杂的处理
+            else if (this.exp.vFor.test(name)) {
+                this.vForProcess(key, name, element);
+            } // 如果该属性不是v-on开头的，并且该属性的值(key)只是简单的变量名，则为该元素创建对应的setter事件
+            else if (this.exp.key.test(key)) {
                 // 获取该key在策略池中保存的策略组，然后将新的策略添加到组中
                 let processors = this.pool[key] || (this.pool[key] = []);
                 processors.push(new ElementProcessor(key, element, this.mia, this.specialMethod[name](element), this.specialInitMethod[name](element)));
-            } else {//todo 运算符处理
+            } //todo 运算符处理
+            else {
                 console.log("运算符待处理");
             }
         })
@@ -265,6 +275,17 @@ class StrategyPool {
             element.addEventListener(arrtName.split(":")[1], () => { this.mia.method[attrVal.match(this.exp.extractMethodName)[1]](...[].map.call(args, (arg) => { return arg() })) })
         } else {
             console.log("运算表达式待处理！");
+        }
+    }
+
+    // v-for的特殊处理，
+    vForProcess(attrVal, arrtName, element) {
+        let blackMagic = [].slice.call(attrVal.match(this.exp.vForExtract), 1);
+        let forObject = StrategyPool.val(this.mia.data, blackMagic[1]);
+
+        for (let key in forObject) {
+            const value = forObject[key];
+            let text = element.textContent;
         }
     }
 }

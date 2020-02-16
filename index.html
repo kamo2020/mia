@@ -10,12 +10,13 @@
 
 <body>
     <div id="el">
-        <h1>{{ title }} 和 {{ content }}</h1>
-        <input type="text" v-model="title" style="width: 250px; height: 20px; border: 1px solid red"
-            placeholder="输入测试绑定title">
-        <input type="text" v-model="title" style="width: 250px; height: 20px; border: 1px solid red"
-            placeholder="输入测试绑定title">
-
+        <div>
+            <h1>{{ title }} 和 {{ content }}</h1>
+            <input type="text" v-model="title" style="width: 250px; height: 20px; border: 1px solid red"
+                placeholder="输入测试绑定title">
+            <input type="text" v-model="title" style="width: 250px; height: 20px; border: 1px solid red"
+                placeholder="输入测试绑定title">
+        </div>
         <div class="checkbox">
             <label>
                 <input type="checkbox" v-model="lever">
@@ -23,13 +24,18 @@
             </label>
         </div>
 
-        <h1>{{ more.m3 }}</h1>
-        <input type="text" v-model="more.m3" style="width: 250px; height: 20px; border: 1px solid red"
-            placeholder="输入测试绑定二级">
+        <div>
+            <h1>多级引用测试</h1>
+            <h1>{{ more.m3 }}</h1>
+            <input type="text" v-model="more.m3" style="width: 250px; height: 20px; border: 1px solid red"
+                placeholder="输入测试绑定二级">
+        </div>
 
 
-        <div class="radio">
-            <span>选择的是{{ radio.r1 }}, 请选择</span>
+
+        <div>
+            <h1>radio测试，以及多级引用测试</h1>
+            <span>选择的是<span style="color: rgb(247, 76, 46); background-color: cyan;">{{ radio.r1 }}</span>, 请选择</span>
             <label>
                 <input type="radio" name="radio.r1" id="input" value="东瓜" v-model="radio.r1">
                 东瓜
@@ -46,16 +52,20 @@
                 <input type="radio" name="radio.r1" id="input" value="北瓜" v-model="radio.r1">
                 北瓜(我们那这样称呼南瓜)
             </label>
-
         </div>
 
-        <button v-on:click="say1">方法测试</button>
+        <div>
+            <h1>多种方法测试</h1>
+            <button v-on:click="say1">方法测试</button>
 
-        <button v-on:click="say2('毛毛虫', '西瓜虫', 421, '蜜蜂')">带参方法测试</button>
+            <button v-on:click="say2('毛毛虫', '西瓜虫', 421, '蜜蜂')">带参方法测试</button>
 
-        <button v-on:click="say3(title, more.m1)">带引用对象参数方法测试</button>
+            <button v-on:click="say3(title, more.m1)">带引用对象参数方法测试</button>
+        </div>
+
 
         <div>
+            <h1>checkbox数组测试</h1>
             <label>
                 <input type="checkbox" name="cb1" v-model="cBoxs" value="大白兔">大白兔
             </label>
@@ -66,9 +76,17 @@
                 <input type="checkbox" name="cb3" v-model="cBoxs" value="中之人">中之人
             </label>
             所选择的是：
-            {{ cBoxs }}
+            <span style="color: chocolate;">{{ cBoxs }}</span>
         </div>
 
+
+        <div>
+            <h1>v-for测试</h1>
+
+            <select name="city" v-model="city">
+                <option v-for="city in cities" value="city">{{ city }}</option>
+            </select>
+        </div>
     </div>
 </body>
 
@@ -86,7 +104,8 @@
             radio: {
                 r1: "西瓜"
             },
-            cBoxs: ["小红帽"]
+            cBoxs: ["小红帽"],
+            cities: ["武汉市", "浣熊市", "暗区"]
         },
         method: {
             say1: function () {
