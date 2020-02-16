@@ -19,11 +19,7 @@
         <div class="checkbox">
             <label>
                 <input type="checkbox" v-model="lever">
-                Checkbox
-            </label>
-            <label>
-                <input type="checkbox" v-model="lever">
-                Checkbox
+                Checkbox : {{ lever }}
             </label>
         </div>
 
@@ -59,6 +55,20 @@
 
         <button v-on:click="say3(title, more.m1)">带引用对象参数方法测试</button>
 
+        <div>
+            <label>
+                <input type="checkbox" name="cb1" v-model="cBoxs" value="大白兔">大白兔
+            </label>
+            <label>
+                <input type="checkbox" name="cb2" v-model="cBoxs" value="小红帽">小红帽
+            </label>
+            <label>
+                <input type="checkbox" name="cb3" v-model="cBoxs" value="中之人">中之人
+            </label>
+            所选择的是：
+            {{ cBoxs }}
+        </div>
+
     </div>
 </body>
 
@@ -75,7 +85,8 @@
             },
             radio: {
                 r1: "西瓜"
-            }
+            },
+            cBoxs: ["小红帽"]
         },
         method: {
             say1: function () {
@@ -94,10 +105,10 @@
 
     //定时器，无关核心
     let step = 0;
-    let timer = setInterval(() => {
-        step += 1;
-        mia.data.content = step + "";
-    }, 1000)
+    // let timer = setInterval(() => {
+    //     step += 1;
+    //     mia.data.content = step + "";
+    // }, 1000)
 </script>
 
 </html>

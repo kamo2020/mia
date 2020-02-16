@@ -3,42 +3,63 @@ class MIA {
         this.data = options.data;
         this.root = document.querySelector(options.el);
         this.method = options.method;
-        this.sp = new StrategyPool(this.data, this.method);
+        this.sp = new StrategyPool(this);
         this.initData(); //初始化
     }
 
     initData() {
         // 遍历每个节点，将对应的处理策略注册到策略池中,通过this.data中的字段来引用这些处理策略
         this.eachNode(this.root);
-        // 页面中出现的key，反向注册到其setter方法
-        let keys = Object.keys(this.sp.pool);
-        keys.forEach(key => { this.defineProperty(this.data, key) });
+        Object.entries(this.sp.pool).forEach(entry => entry[1].forEach(processor => processor.init()));
+        this.data = this.createProxy(this.data, "");
+        console.log("初始化完成！");
     }
 
-    defineProperty(data, complexKey) {
-        // 获取该复杂key所属的对象
-        let keyOfObj = StrategyPool.keyOfObj(data, complexKey);
-        // 获取该复杂key的最后一个key
-        let key = complexKey.split(".").pop();
-        // 获取value
-        let value = keyOfObj[key];
-        // 获取该复杂key对应的处理函数的数组
-        let processors = this.sp.pool[complexKey];
-        // 注册setter事件
-        Object.defineProperty(keyOfObj, key, {
-            enumerable: true,
-            configurable: false,
-            set: function (newVal) {
-                if (newVal === value) return;
-                value = newVal;
-                processors.forEach((processor) => { processor.do() })
-            },
-            get: function () {
-                return value;
+    // 将key对应的值转换为一个代理对象
+    convertProxy(complexKey) {
+        let value = StrategyPool.val(this.data, complexKey);
+        if (value instanceof Object) {
+            StrategyPool.val(this.data, complexKey, this.createProxy(value, complexKey))
+        } else {
+            return;
+        }
+    }
+
+    // 创建代理对象
+    createProxy(value, keyPrefix) {
+        // 给当前对象添加一个属性__prefix__，这个属性将和被set的属性拼接，形成一个复杂key,通过这个复杂key可以从策略池中获取其对应的策略数组，然后依次执行数组中的这些策略
+        value.__prefix__ = (keyPrefix) ? keyPrefix + "." : "";
+        // 以value这个对象为基本，创建一个代理对象，这个代理对象重写了这个对象的set方法，当这个对象的某个属性被赋值时，调用这个重写的set方法，然后执行对应的策略
+        let proxy = new Proxy(value, {
+            set: (target, property, value, receiver) => {
+                // 如果新值与旧值相等，则直接返回即可，不再执行下面的操作
+                if (target[property] === value) return true;
+                // 常规的进行赋值
+                target[property] = value;
+                // 赋值完成后，开始调用这个属性的相关策略
+                let processors = this.sp.pool[target.__prefix__ + property];
+                (processors) && processors.forEach((processor) => { processor.do() })
+                return true;
             }
         });
-        // 初始化,即执行所有处理函数
-        (processors) && (processors.forEach((processor) => { processor.init() }))
+        // 递归
+        [].slice.call(Object.keys(value)).forEach((key) => { this.convertProxy(value.__prefix__ + key); });
+
+        // 数组变动的监视
+        if (value instanceof Array) {
+            ["push", "splice"].forEach(methodName => {
+                let method = Array.prototype[methodName];
+                method.__prefix__ = (keyPrefix) ? keyPrefix + "." : "";
+                value[methodName] = new Proxy(method, {
+                    apply: (target, thisArg, argumentsList) => {
+                        Reflect.apply(target, thisArg, argumentsList);
+                        let processors = this.sp.pool[method.__prefix__.match(/(.*)\.$/)[1]];
+                        (processors) && processors.forEach((processor) => { processor.do() })
+                    }
+                })
+            })
+        }
+        return proxy;
     }
 
     eachNode(node) {
@@ -64,7 +85,9 @@ class MIA {
 
 // 策略池，当初始化时，遍历每一个元素时都会通过策略池来决定要注册的事件
 class StrategyPool {
-    constructor(data, method) {
+    constructor(mia) {
+        // 直接将MIA的实例对象传入进来，这样方便在底层操作的时候能引用到最新的数据
+        this.mia = mia;
         // 策略池，{key : [processor1, processor2..], key2: {processor1, processor2..}}
         this.pool = {};
         // 正则表达式
@@ -80,12 +103,6 @@ class StrategyPool {
             stringExp: /^["']{1}(.+)["']{1}$/,
             referenceExp: /^[\w\d\._]+$/,
         }
-        // 引用MIA options中的data
-        this.data = data;
-
-        // 引用MIA options中的method
-        this.method = method;
-
         // 特定属性
         this.specialAttrs = ["v-model", "v-value", "v-text", "v-on"];
         // 拥有该属性的元素的渲染方式，当options.data中的字段的值被修改后自动执行对应方法修改该元素的相关内容
@@ -93,11 +110,16 @@ class StrategyPool {
             "v-model": function (element) {
                 switch (element.type) {
                     case "checkbox":
-                        return (packet) => { packet.node.checked = (StrategyPool.val(packet.data, packet.key)) ? "checked" : "" };
+                        let sameCheckBox = element.getRootNode().querySelectorAll("input[type='checkbox'][v-model='" + element.getAttribute("v-model") + "']");
+                        if (sameCheckBox.length > 1) {
+                            return (packet) => { packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key).indexOf(packet.node.value) != -1) ? "checked" : "" }
+                        } else {
+                            return (packet) => { packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key)) ? "checked" : "" };
+                        }
                     case "radio":
-                        return (packet) => { packet.node.checked = (packet.node.value === StrategyPool.val(packet.data, packet.key)) ? "checked" : "" };
+                        return (packet) => { packet.node.checked = (packet.node.value === StrategyPool.val(packet.mia.data, packet.key)) ? "checked" : "" };
                     default:
-                        return (packet) => { packet.node.value = StrategyPool.val(packet.data, packet.key) };
+                        return (packet) => { packet.node.value = StrategyPool.val(packet.mia.data, packet.key) };
                 }
             }
         };
@@ -107,19 +129,36 @@ class StrategyPool {
             "v-model": function (element) {
                 switch (element.type) {
                     case "checkbox":
-                        return (packet) => {
-                            packet.node.checked = (StrategyPool.val(packet.data, packet.key)) ? "checked" : "";
-                            packet.node.addEventListener("input", () => { StrategyPool.val(packet.data, packet.key, (packet.node.checked)) })
+                        let sameCheckBox = element.getRootNode().querySelectorAll("input[type='checkbox'][v-model='" + element.getAttribute("v-model") + "']");
+                        if (sameCheckBox.length > 1) {
+                            return (packet) => {
+                                packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key).indexOf(packet.node.value) != -1) ? "checked" : "";
+                                packet.node.addEventListener("input", () => {
+                                    let value = StrategyPool.val(packet.mia.data, packet.key);
+                                    value.__nowNode__ = packet.node;
+                                    if (packet.node.checked) {
+                                        value.push(packet.node.value);
+                                    } else {
+                                        let index = value.indexOf(packet.node.value);
+                                        if (index != -1) { value.splice(index, 1) }
+                                    }
+                                });
+                            }
+                        } else {
+                            return (packet) => {
+                                packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key)) ? "checked" : "";
+                                packet.node.addEventListener("input", () => { StrategyPool.val(packet.mia.data, packet.key, (packet.node.checked)) })
+                            }
                         }
                     case "radio":
                         return (packet) => {
-                            packet.node.checked = (packet.node.value === StrategyPool.val(packet.data, packet.key)) ? "checked" : ""
-                            packet.node.addEventListener("input", () => { StrategyPool.val(packet.data, packet.key, packet.node.value) })
+                            packet.node.checked = (packet.node.value === StrategyPool.val(packet.mia.data, packet.key)) ? "checked" : ""
+                            packet.node.addEventListener("input", () => { StrategyPool.val(packet.mia.data, packet.key, packet.node.value) })
                         };
                     default:
                         return (packet) => {
-                            packet.node.value = StrategyPool.val(packet.data, packet.key);
-                            packet.node.addEventListener("input", () => { StrategyPool.val(packet.data, packet.key, packet.node.value) })
+                            packet.node.value = StrategyPool.val(packet.mia.data, packet.key);
+                            packet.node.addEventListener("input", () => { StrategyPool.val(packet.mia.data, packet.key, packet.node.value) })
                         }
                 }
             }
@@ -145,7 +184,7 @@ class StrategyPool {
             }
         };
         PcSorCollector.forEach(processors => {
-            processors.push(new TextProcessor(keys, node, txt, this.data))
+            processors.push(new TextProcessor(keys, node, txt, this.mia))
         });
     }
 
@@ -162,7 +201,7 @@ class StrategyPool {
             } else if (this.exp.key.test(key)) {// 如果该属性不是v-on开头的，并且该属性的值(key)只是简单的变量名，则为该元素创建对应的setter事件
                 // 获取该key在策略池中保存的策略组，然后将新的策略添加到组中
                 let processors = this.pool[key] || (this.pool[key] = []);
-                processors.push(new ElementProcessor(key, element, this.data, this.specialMethod[name](element), this.specialInitMethod[name](element)));
+                processors.push(new ElementProcessor(key, element, this.mia, this.specialMethod[name](element), this.specialInitMethod[name](element)));
             } else {//todo 运算符处理
                 console.log("运算符待处理");
             }
@@ -171,8 +210,8 @@ class StrategyPool {
 
     // 通过复杂key(options.data.more.m1)从options.data中对应的字段设置的值
     static val(data, complexKey, newVal) {
-        let hierarchy = complexKey.split(".");
         let value = data;
+        let hierarchy = complexKey.split(".");
         if (newVal === undefined) {
             for (let index = 0; index < hierarchy.length; index++) {
                 const key = hierarchy[index];
@@ -199,7 +238,7 @@ class StrategyPool {
     // v-on开头的属性处理策略，适配多种方法的调用，例如:无参，有参，参数为引用MIA options中的data数据的
     methodProcess(attrVal, arrtName, element) {
         if (this.exp.key.test(attrVal)) {// 如果是单纯的变量名类型，表示调用的是无参方法，直接添加事件即可
-            element.addEventListener(arrtName.split(":")[1], this.method[attrVal]);
+            element.addEventListener(arrtName.split(":")[1], this.mia.method[attrVal]);
         } else if (this.exp.methodWithParam.test(attrVal)) {// 如果该字符串中类似("method(str)"),说明调用的是带参数的方法
             // 提取该字符串中表示参数的部分，最终变成一个参数数组，但是这个数组全部都是字符串类型的数据，因此需要继续处理
             let params = attrVal.match(this.exp.extractParam)[1].split(this.exp.splitParam);
@@ -215,7 +254,7 @@ class StrategyPool {
                     param = param.replace(/["']/g, "");
                     args[index] = () => { return param };
                 } else if (this.exp.referenceExp.test(param)) {// 如果该参数是引用数据类型的，只是单纯的变量名(title, more.m1)
-                    args[index] = () => { return StrategyPool.val(this.data, param) };
+                    args[index] = () => { return StrategyPool.val(this.mia.data, param) };
                 }
             }
             // 当参数处理完毕后，得到一个args数组，这个数组中存储的都是方法，当调用后获取真正的参数
@@ -223,7 +262,7 @@ class StrategyPool {
             // () => { this.method[attrVal.match(this.exp.extractMethodName)[1]](...[].map.call(args, (arg) => { return arg() })) }
             // 该事件要执行的方法 this.method[attrVal.match(this.exp.extractMethodName)[1]]
             // 参数列表 (...[].map.call(args, (arg) => { return arg() })) }) 将args转换为真正的参数
-            element.addEventListener(arrtName.split(":")[1], () => { this.method[attrVal.match(this.exp.extractMethodName)[1]](...[].map.call(args, (arg) => { return arg() })) })
+            element.addEventListener(arrtName.split(":")[1], () => { this.mia.method[attrVal.match(this.exp.extractMethodName)[1]](...[].map.call(args, (arg) => { return arg() })) })
         } else {
             console.log("运算表达式待处理！");
         }
@@ -231,20 +270,18 @@ class StrategyPool {
 }
 
 class TextProcessor {
-    constructor(keys, node, text, data) {
+    constructor(keys, node, text, mia) {
         this.node = node;
         this.textSource = text;
         this.keys = keys;
-        this.data = data
+        this.mia = mia
         this.nExps = {};
         this.keys.forEach(key => { this.nExps[key] = new RegExp("\\{\\{\\s?(" + key + "[^\\}\\s]*)\\s?\\}\\}", "gm") })
     }
 
     do() {
         let text = this.textSource;
-        this.keys.forEach(key => {
-            text = text.replace(this.nExps[key], StrategyPool.val(this.data, key) || "");
-        })
+        this.keys.forEach(key => { text = text.replace(this.nExps[key], StrategyPool.val(this.mia.data, key)) })
         this.node.textContent = text;
     }
 
@@ -254,10 +291,10 @@ class TextProcessor {
 }
 
 class ElementProcessor {
-    constructor(key, node, data, method, initMethod) {
+    constructor(key, node, mia, method, initMethod) {
         this.node = node;
         this.key = key;
-        this.data = data;
+        this.mia = mia;
         this.method = method;
         this.initMethod = initMethod;
     }
