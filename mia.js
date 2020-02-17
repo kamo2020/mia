@@ -10,9 +10,7 @@ class MIA {
     initData() {
         // 遍历每个节点，将对应的处理策略注册到策略池中,通过this.data中的字段来引用这些处理策略
         this.eachNode(this.root);
-        Object.entries(this.sp.pool).forEach(entry => entry[1].forEach(processor => processor.init()));
         this.data = this.createProxy(this.data, "");
-        console.log("初始化完成！");
     }
 
     // 将key对应的值转换为一个代理对象
@@ -28,7 +26,7 @@ class MIA {
     // 创建代理对象
     createProxy(value, keyPrefix) {
         // 给当前对象添加一个属性__prefix__，这个属性将和被set的属性拼接，形成一个复杂key,通过这个复杂key可以从策略池中获取其对应的策略数组，然后依次执行数组中的这些策略
-        value.__prefix__ = (keyPrefix) ? keyPrefix + "." : "";
+        let _prefix_ = (keyPrefix) ? keyPrefix + "." : "";
         // 以value这个对象为基本，创建一个代理对象，这个代理对象重写了这个对象的set方法，当这个对象的某个属性被赋值时，调用这个重写的set方法，然后执行对应的策略
         let proxy = new Proxy(value, {
             set: (target, property, value, receiver) => {
@@ -37,26 +35,27 @@ class MIA {
                 // 常规的进行赋值
                 target[property] = value;
                 // 赋值完成后，开始调用这个属性的相关策略
-                let processors = this.sp.pool[target.__prefix__ + property];
+                let processors = this.sp.pool[receiver.__prefix__ + property];
                 (processors) && processors.forEach((processor) => { processor.do() })
                 return true;
             }
         });
+        proxy.__prefix__ = _prefix_;
         // 递归
         [].slice.call(Object.keys(value)).forEach((key) => { this.convertProxy(value.__prefix__ + key); });
 
         // 数组变动的监视
-        if (value instanceof Array) {
+        if (proxy instanceof Array) {
             ["push", "splice"].forEach(methodName => {
-                let method = value[methodName];
-                method.__prefix__ = (keyPrefix) ? keyPrefix + "." : "";
-                value[methodName] = new Proxy(method, {
+                let method = Array.prototype[methodName];
+                proxy[methodName] = new Proxy(method, {
                     apply: (target, thisArg, argumentsList) => {
                         Reflect.apply(target, thisArg, argumentsList);
-                        let processors = this.sp.pool[method.__prefix__.match(/(.*)\.$/)[1]];
+                        let processors = this.sp.pool[thisArg.__prefix__.match(/(.*)\.$/)[1]];
                         (processors) && processors.forEach((processor) => { processor.do() })
                     }
-                })
+                });
+                proxy[methodName].__prefix__ = _prefix_;
             })
         }
         return proxy;
@@ -113,7 +112,7 @@ class StrategyPool {
             "v-model": function (element) {
                 switch (element.type) {
                     case "checkbox":
-                        let sameCheckBox = element.getRootNode().querySelectorAll("input[type='checkbox'][v-model='" + element.getAttribute("v-model") + "']");
+                        let sameCheckBox = document.querySelectorAll("input[type='checkbox'][v-model='" + element.getAttribute("v-model") + "']");
                         if (sameCheckBox.length > 1) {
                             return (packet) => { packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key).indexOf(packet.node.value) != -1) ? "checked" : "" }
                         } else {
@@ -124,6 +123,9 @@ class StrategyPool {
                     default:
                         return (packet) => { packet.node.value = StrategyPool.val(packet.mia.data, packet.key) };
                 }
+            },
+            "v-value": function (element) {
+                return (packet) => { packet.node.value = StrategyPool.val(packet.mia.data, packet.key) }
             }
         };
 
@@ -132,11 +134,11 @@ class StrategyPool {
             "v-model": function (element) {
                 switch (element.type) {
                     case "checkbox":
-                        let sameCheckBox = element.getRootNode().querySelectorAll("input[type='checkbox'][v-model='" + element.getAttribute("v-model") + "']");
+                        let sameCheckBox = document.querySelectorAll("input[type='checkbox'][v-model='" + element.getAttribute("v-model") + "']");
                         if (sameCheckBox.length > 1) {
                             return (packet) => {
                                 packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key).indexOf(packet.node.value) != -1) ? "checked" : "";
-                                packet.node.addEventListener("input", () => {
+                                packet.node.addEventListener("click", () => {
                                     let value = StrategyPool.val(packet.mia.data, packet.key);
                                     if (packet.node.checked) {
                                         value.push(packet.node.value);
@@ -149,13 +151,13 @@ class StrategyPool {
                         } else {
                             return (packet) => {
                                 packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key)) ? "checked" : "";
-                                packet.node.addEventListener("input", () => { StrategyPool.val(packet.mia.data, packet.key, (packet.node.checked)) })
+                                packet.node.addEventListener("click", () => { StrategyPool.val(packet.mia.data, packet.key, (packet.node.checked)) })
                             }
                         }
                     case "radio":
                         return (packet) => {
                             packet.node.checked = (packet.node.value === StrategyPool.val(packet.mia.data, packet.key)) ? "checked" : ""
-                            packet.node.addEventListener("input", () => { StrategyPool.val(packet.mia.data, packet.key, packet.node.value) })
+                            packet.node.addEventListener("click", () => { StrategyPool.val(packet.mia.data, packet.key, packet.node.value) })
                         };
                     default:
                         return (packet) => {
@@ -163,6 +165,9 @@ class StrategyPool {
                             packet.node.addEventListener("input", () => { StrategyPool.val(packet.mia.data, packet.key, packet.node.value) })
                         }
                 }
+            },
+            "v-value": function (element) {
+                return (packet) => { packet.method(packet) };
             }
         };
     }
@@ -185,9 +190,7 @@ class StrategyPool {
                 console.log("运算符待处理");
             }
         };
-        PcSorCollector.forEach(processors => {
-            processors.push(new TextProcessor(keys, node, txt, this.mia))
-        });
+        PcSorCollector.forEach(processors => { processors.push(new TextProcessor(keys, node, txt, this.mia)) });
     }
 
     elementNodeRegister(element) {
@@ -198,14 +201,16 @@ class StrategyPool {
         // 排序，让某个属性优先执行比如v-for
         attrCollector.sort((a, b) => { return (this.specialAttrs.indexOf(a.name.split(":")[0]) < this.specialAttrs.indexOf(b.name.split(":")[0])) ? -1 : 1 });
 
-        attrCollector.forEach(attr => {
+        for (let index = 0; index < attrCollector.length; index++) {
+            const attr = attrCollector[index];
             const key = attr.value.trim(); const name = attr.name;
             // 如果通过该属性是v-on开头的，则直接注册相关事件即可
             if (this.exp.method.test(name)) {
                 this.methodProcess(key, name, element);
             } // 如果该属性是v-for则进行复杂的处理
             else if (this.exp.vFor.test(name)) {
-                this.vForProcess(key, name, element);
+                this.vForProcess(key, element);
+                break;
             } // 如果该属性不是v-on开头的，并且该属性的值(key)只是简单的变量名，则为该元素创建对应的setter事件
             else if (this.exp.key.test(key)) {
                 // 获取该key在策略池中保存的策略组，然后将新的策略添加到组中
@@ -215,7 +220,7 @@ class StrategyPool {
             else {
                 console.log("运算符待处理");
             }
-        })
+        }
     }
 
     // 通过复杂key(options.data.more.m1)从options.data中对应的字段设置的值
@@ -224,7 +229,8 @@ class StrategyPool {
         let hierarchy = complexKey.split(".");
         if (newVal === undefined) {
             for (let index = 0; index < hierarchy.length; index++) {
-                const key = hierarchy[index];
+                let key = hierarchy[index];
+                key = /^\d+$/.test(key) ? parseInt(key) : key;
                 value = value[key];
             }
             return value || null;
@@ -239,7 +245,8 @@ class StrategyPool {
         let hierarchy = complexKey.split(".");
         let value = data;
         for (let index = 0; index < hierarchy.length - 1; index++) {
-            const key = hierarchy[index];
+            let key = hierarchy[index];
+            key = /^\d+$/.test(key) ? parseInt(key) : key;
             value = value[key];
         }
         return value;
@@ -279,14 +286,13 @@ class StrategyPool {
     }
 
     // v-for的特殊处理，
-    vForProcess(attrVal, arrtName, element) {
+    vForProcess(attrVal, element) {
         let blackMagic = [].slice.call(attrVal.match(this.exp.vForExtract), 1);
-        let forObject = StrategyPool.val(this.mia.data, blackMagic[1]);
-
-        for (let key in forObject) {
-            const value = forObject[key];
-            let text = element.textContent;
-        }
+        let anchorNode = document.createElement("anchor");
+        element.parentNode.replaceChild(anchorNode, element);
+        let processor = new VForProcessor(element.cloneNode(true), anchorNode, this.mia, blackMagic[1], blackMagic[0].split(/[,\s]+/));
+        let processors = this.pool[blackMagic[1]] || (this.pool[blackMagic[1]] = []);
+        processors.push(processor);
     }
 }
 
@@ -298,6 +304,7 @@ class TextProcessor {
         this.mia = mia
         this.nExps = {};
         this.keys.forEach(key => { this.nExps[key] = new RegExp("\\{\\{\\s?(" + key + "[^\\}\\s]*)\\s?\\}\\}", "gm") })
+        this.init();
     }
 
     do() {
@@ -318,6 +325,7 @@ class ElementProcessor {
         this.mia = mia;
         this.method = method;
         this.initMethod = initMethod;
+        this.init();
     }
 
     do() {
@@ -326,5 +334,50 @@ class ElementProcessor {
 
     init() {
         this.initMethod(this);
+    }
+}
+
+class VForProcessor {
+    constructor(nodeSource, anchorNode, mia, scope, forArgs) {
+        this.nodeSource = nodeSource;
+        this.nodeSource.removeAttribute("v-for")
+        this.anchorNode = anchorNode;
+        this.root = this.anchorNode.parentNode;
+        this.generatedNode = [];
+        this.mia = mia;
+        this.scope = scope;
+        this.forArgs = forArgs;
+        this.nExp = new RegExp("\\{\\{\\s?" + this.forArgs[0] + "[^\\}\\s]*\\s?\\}\\}", "gm");
+        this.fragment = document.createDocumentFragment();
+        this.init();
+    }
+
+    do() {
+        for (let index = this.generatedNode.length - 1; index > -1; index--) {
+            this.root.removeChild(this.generatedNode[index]);
+            this.generatedNode.pop();
+        }
+        let vForObject = StrategyPool.val(this.mia.data, this.scope);
+        if (!(vForObject instanceof Object)) return;
+        for (let key in vForObject) {
+            if (["push", "__prefix__", "splice"].indexOf(key) != -1) continue;
+            let node = this.nodeSource.cloneNode(true);
+            let text = node.textContent;
+            let complexKey = this.scope + "." + key;
+            node.textContent = text.replace(this.nExp, `{{ ${complexKey} }}`);
+            let attrCollector = [].filter.call(node.attributes, attr => { return (["v-model", "value", "v-value"].indexOf(attr.name.split(":")[0]) != -1) });
+            attrCollector.forEach(attr => {
+                node.removeAttribute(attr.name);
+                node.setAttribute(attr.name === "value" ? "v-value" : attr.name, complexKey);
+            })
+            this.generatedNode.push(node);
+            this.mia.eachNode(node);
+            this.fragment.appendChild(node);
+        }
+        this.root.insertBefore(this.fragment, this.anchorNode);
+    }
+
+    init() {
+        this.do();
     }
 }
