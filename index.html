@@ -61,6 +61,10 @@
             <button v-on:click="say2('毛毛虫', '西瓜虫', 421, '蜜蜂')">带参方法测试</button>
 
             <button v-on:click="say3(title, more.m1)">带引用对象参数方法测试</button>
+
+            <button v-on:click="say4">方法内部this指向测试</button>
+
+            <button v-on:click="say5">方法引用方法测试</button>
         </div>
 
 
@@ -81,10 +85,19 @@
 
 
         <div>
-            <h1>v-for测试</h1>
+            <h2>v-for测试1，简单的数组中数据的引用</h2>
             <select name="city">
                 <option v-for="city in cities" value="city">{{ city }}</option>
             </select>
+            <h2>v-for测试2，数组中对象的引用</h2>
+            <span v-for="room in rooms" value="room.name">【room.name:{{ room.name }}】</span>
+        </div>
+
+        <div>
+            <h1>同一对象被其他多个对象引用，测试</h1>
+            <span>引用currRoom.name: {{ currRoom.name }}</span>
+            <input type="text" v-model="currRoom.name" width="300px">
+            <button v-on:click="setCurrRoom">引用上面房子列表的第一个房子的数据</button>
         </div>
     </div>
 </body>
@@ -104,7 +117,9 @@
                 r1: "西瓜"
             },
             cBoxs: ["小红帽"],
-            cities: ["武汉市", "浣熊市", "暗区"]
+            cities: ["武汉市", "浣熊市", "暗区"],
+            rooms: [{ name: "小黑屋" }, { name: "精神时光屋" }]
+
         },
         method: {
             say1: function () {
@@ -115,7 +130,20 @@
             },
             say3: function (title, arg2) {
                 alert("标题:" + title + ",参数2:" + arg2);
+            },
+            say4: function () {
+                alert("已在控制台输出！")
+                console.log(this);
+            },
+            say5: function () {
+                this.say1();
+            },
+            setCurrRoom: function () {
+                this.currRoom = this.rooms[0];
             }
+        },
+        init: function () {
+            console.log("初始化方法执行！");
         }
     }
 
