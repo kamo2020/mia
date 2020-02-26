@@ -252,7 +252,7 @@ class StrategyPool {
                 value = value[key];
                 if (value === undefined) return null;
             }
-            return value || null;
+            return value;
         } else {
             StrategyPool.keyOfObj(data, complexKey)[hierarchy.pop()] = newVal;
             return newVal;
@@ -348,7 +348,10 @@ class TextProcessor {
 
     do() {
         let text = this.textSource;
-        this.keys.forEach(key => { text = text.replace(this.nExps[key], StrategyPool.val(this.mia.data, key)) })
+        this.keys.forEach(key => {
+            let value = StrategyPool.val(this.mia.data, key); value = value === null ? "" : value;
+            text = text.replace(this.nExps[key], value)
+        })
         this.node.textContent = text;
     }
 
