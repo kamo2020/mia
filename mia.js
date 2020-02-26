@@ -38,13 +38,11 @@ class MIA {
             }
             // 递归
             let keys = [].filter.call(Object.keys(proxy), (key) => { return ["__prefix__", "I_isProxy_I", "push", "splice", ""].indexOf(key) == -1 });
-
-            keys && keys.forEach((key) => {
-                proxy.__prefix__.forEach(prefix => { this.convertProxy(prefix + key) })
-            });
+            keys && keys.forEach((key) => { proxy.__prefix__.forEach(prefix => { this.convertProxy(prefix + key) }) });
+        } else {
+            StrategyPool.pcSorProxySlave(complexKey, this.sp.pool);
         }
-        let processors = this.sp.pool[complexKey];
-        (processors) && processors.forEach((processor) => { processor.do() })
+
     }
 
     // 创建代理对象
@@ -62,10 +60,7 @@ class MIA {
                     receiver.__prefix__.forEach(prefix => { this.convertProxy(prefix + property) });
                 }
                 // 赋值完成后，开始调用这个属性的相关策略
-                receiver.__prefix__.forEach(prefix => {
-                    let processors = this.sp.pool[prefix + property];
-                    (processors) && processors.forEach((processor) => { processor.do() })
-                })
+                StrategyPool.pcSorProxy(receiver.__prefix__, property, this.sp.pool);
                 return true;
             }
         });
@@ -73,19 +68,17 @@ class MIA {
         proxy.__prefix__ = (keyPrefix) ? [keyPrefix] : [""];
         proxy.I_isProxy_I = true;
         // 数组变动的监视
-        if (proxy instanceof Array) {
+        if (Array.isArray(proxy)) {
             ["push", "splice"].forEach(methodName => {
                 let method = Array.prototype[methodName];
                 proxy[methodName] = new Proxy(method, {
                     apply: (target, thisArg, argumentsList) => {
                         Reflect.apply(target, thisArg, argumentsList);
-                        thisArg.__prefix__.forEach(prefix => {
-                            let processors = this.sp.pool[prefix.match(/(.*)\b\.{0,1}$/)[1]];
-                            (processors) && processors.forEach((processor) => { processor.do() })
-                        })
+                        let keys = thisArg.__prefix__.map(key => key.match(/(.*)\b\.{0,1}$/)[1]);
+                        let keysWithLength = thisArg.__prefix__.map(key => key + "length");
+                        StrategyPool.pcSorProxy([...keys, ...keysWithLength], "", this.sp.pool);
                     }
                 });
-                proxy[methodName].__prefix__ = [keyPrefix];
             })
         }
         return proxy;
@@ -104,7 +97,7 @@ class MIA {
         }
         // 递归
         let childNodes;
-        if (node.hasChildNodes() && (childNodes = node.childNodes)) {
+        if ((!node.__discard__) && node.hasChildNodes() && (childNodes = node.childNodes)) {
             for (let index = 0; index < childNodes.length; index++) {
                 this.eachNode(childNodes[index]);
             }
@@ -136,7 +129,7 @@ class StrategyPool {
             stringExp: /^["']{1}(.+)["']{1}$/,
             referenceExp: /^[\w\d\._]+$/,
             vFor: /v-for/,
-            vForExtract: /^[\s\(]*([^\)]*)[\s\)]*in\s*([\d\w_]*)\s?$/
+            vForExtract: /^[\s\(]*([^\)]*)[\s\)]*in\s*([\d\w\._]*)\s?$/
         }
         // 特定属性
         this.specialAttrs = ["v-for", "v-model", "v-value", "v-text", "v-on"];
@@ -234,6 +227,7 @@ class StrategyPool {
             } // 如果该属性是v-for则进行复杂的处理
             else if (this.exp.vFor.test(name)) {
                 this.vForProcess(key, element);
+                element.__discard__ = true;// 丢弃该元素不再继续处理
                 break;
             } // 如果该属性不是v-on开头的，并且该属性的值(key)只是简单的变量名，则为该元素创建对应的setter事件
             else if (this.exp.key.test(key)) {
@@ -276,6 +270,22 @@ class StrategyPool {
             value = value[key];
         }
         return value;
+    }
+
+    // 每个key对应的策略执行器(processors)集合的的委托执行方法，将会对这个集合中的策略处理器(processor)进行过滤并且执行
+    static pcSorProxy(complexKeys, suffix, pool) {
+        complexKeys.forEach(complexKey => StrategyPool.pcSorProxySlave(complexKey + suffix, pool))
+    }
+
+    static pcSorProxySlave(complexKey, pool) {
+        let processors = pool[complexKey]; // 这个key对应的处理器集合
+        if (processors) {
+            let discard = [];
+            for (let index = 0; index < processors.length; index++) {
+                const processor = processors[index];
+                processor.do();
+            }
+        }
     }
 
     // v-on开头的属性处理策略，适配多种方法的调用，例如:无参，有参，参数为引用MIA options中的data数据的
@@ -331,7 +341,8 @@ class TextProcessor {
         this.keys = keys;
         this.mia = mia
         this.nExps = {};
-        this.keys.forEach(key => { this.nExps[key] = new RegExp("\\{\\{\\s?(" + key + "[^\\}\\s]*)\\s?\\}\\}", "gm") })
+        this.keys.forEach(key => { this.nExps[key] = new RegExp("\\{\\{\\s?(" + key + "[^\\}\\s]*)\\s?\\}\\}", "gm") });
+        this._equalBasis = "TextProcessor";
         this.init();
     }
 
@@ -353,6 +364,7 @@ class ElementProcessor {
         this.mia = mia;
         this.method = method;
         this.initMethod = initMethod;
+        this._equalBasis = "ElementProcessor" + key;
         this.init();
     }
 
@@ -377,6 +389,7 @@ class VForProcessor {
         this.forArgs = forArgs;
         this.nExp = new RegExp(`(\\{{2}\\s?)(${this.forArgs[0]})([\\.\\w\\d]*)(\\s?\\}{2})`, "gm");
         this.fragment = document.createDocumentFragment();
+        this._equalBasis = "VForProcessor";
         this.init();
     }
 
@@ -399,10 +412,10 @@ class VForProcessor {
                 node.setAttribute(attr.name === "value" ? "v-value" : attr.name, attr.value.replace(this.forArgs[0], complexKey));
             })
             this.generatedNode.push(node);
-            this.mia.eachNode(node);
             this.fragment.appendChild(node);
         }
         this.root.insertBefore(this.fragment, this.anchorNode);
+        this.generatedNode.forEach(node => { this.mia.eachNode(node); })
     }
 
     init() {
