@@ -38,7 +38,12 @@ class MIA {
             }
             // 递归
             let keys = [].filter.call(Object.keys(proxy), (key) => { return ["__prefix__", "I_isProxy_I", "push", "splice", ""].indexOf(key) == -1 });
-            keys && keys.forEach((key) => { proxy.__prefix__.forEach(prefix => { this.convertProxy(prefix + key) }) });
+            if (Array.isArray(proxy)) { keys.push("length") };
+            for (let key of keys) {
+                for (let prefix of proxy.__prefix__) {
+                    this.convertProxy(prefix + key);
+                }
+            }
         } else {
             StrategyPool.pcSorProxySlave(complexKey, this.sp.pool);
         }
