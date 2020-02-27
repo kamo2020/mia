@@ -101,6 +101,29 @@
             <input type="text" v-model="currRoom.name" width="300px">
             <button v-on:click="setCurrRoom">引用上面房子列表的第一个房子的数据</button>
         </div>
+
+        <div>
+            <h1>数组重新赋值与v-for测试</h1> 数组长度{{ arr1.length }}
+            <button v-on:click="reArray">给该数组直接赋值一个数组</button>
+            <button v-on:click="reArray1">给该数组添加一个值</button>
+            <span v-for="text in arr1">[ {{ text }} ] | </span>
+        </div>
+
+        <div>
+            <h1>对象内部为数组的变动检测</h1>
+            <span>姓名: {{ arr2.name }}, 年龄: {{ arr2.age }}, waifu数量: {{ arr2.waifus.length }}</span>,
+            waifus: <span v-for="waifu in arr2.waifus">[{{ waifu }}] | </span>
+            <button v-on:click="reArray2">重新赋值整个对象</button>
+        </div>
+
+        <div>
+            <h1>v-for子元素测试</h1>
+            <div v-for="room in rooms">
+                {{ room.name }}
+                <span>{{ room.name }}</span>
+                <input type="text" v-model="room.name">
+            </div>
+        </div>
     </div>
 </body>
 
@@ -120,8 +143,9 @@
             },
             cBoxs: ["小红帽"],
             cities: ["武汉市", "浣熊市", "暗区"],
-            rooms: [{ name: "小黑屋" }, { name: "精神时光屋" }]
-
+            rooms: [{ name: "小黑屋" }, { name: "精神时光屋" }],
+            arr1: [1, 2, 3],
+            arr2: { name: "kamo", age: 17, waifus: ["稀世的永远娘", "侍奉人格的女子", "帅气的女后宫王"] }
         },
         method: {
             say1: function () {
@@ -142,6 +166,15 @@
             },
             setCurrRoom: function () {
                 this.currRoom = this.rooms[0];
+            },
+            reArray: function () {
+                this.arr1 = ["sanakan", "cibo", "kamo", "titania"];
+            },
+            reArray1: function () {
+                this.arr1.push("sanakan");
+            },
+            reArray2: function () {
+                this.arr2 = { name: "加藤茉莉香", age: 16, waifus: ["栗原千秋", "远藤麻美", "...宇宙风帆部"] }
             }
         },
         init: function () {

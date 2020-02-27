@@ -286,11 +286,20 @@ class StrategyPool {
         let processors = pool[complexKey]; // 这个key对应的处理器集合
         if (processors) {
             let discard = [];
-            for (let index = 0; index < processors.length; index++) {
+            for (let index = processors.length - 1; index > -1; index--) {
                 const processor = processors[index];
+                // 如果该策略处理器不是V-FOR的处理器，并且这个策略处理器对应的node已经是被放弃的node，那么记录该策略处理器所在的索引，当循环完毕后，将会根据这些索引将这些策略处理器删除掉
+                if (!(processor instanceof VForProcessor) && (processor.node) && (processor.node.__discard__)) {
+                    discard.push(index); continue;
+                }
                 processor.do();
             }
+            discard.forEach(index => { processors.splice(index, 1) });// 清除掉要放弃的处理器
         }
+    }
+
+    static invalidKey(invalidKey, pool) {
+        delete pool[invalidKey];
     }
 
     // v-on开头的属性处理策略，适配多种方法的调用，例如:无参，有参，参数为引用MIA options中的data数据的
@@ -391,7 +400,7 @@ class VForProcessor {
         this.nodeSource.removeAttribute("v-for")
         this.anchorNode = anchorNode;
         this.root = this.anchorNode.parentNode;
-        this.generatedNode = [];
+        this.generatedNode = {};
         this.mia = mia;
         this.scope = scope;
         this.forArgs = forArgs;
@@ -402,28 +411,64 @@ class VForProcessor {
     }
 
     do() {
-        for (let index = this.generatedNode.length - 1; index > -1; index--) {
-            this.root.removeChild(this.generatedNode[index]);
-            this.generatedNode.pop();
-        }
-        let vForObject = StrategyPool.val(this.mia.data, this.scope);
-        if (!(vForObject instanceof Object)) return;
-        for (let key in vForObject) {
-            if (["push", "__prefix__", "splice", "I_isProxy_I"].indexOf(key) != -1) continue;
-            let node = this.nodeSource.cloneNode(true);
-            let text = node.textContent;
-            let complexKey = this.scope + "." + key;
-            node.textContent = text.replace(this.nExp, `$1${complexKey}$3$4`);
-            let attrCollector = [].filter.call(node.attributes, attr => { return (["v-model", "value", "v-value"].indexOf(attr.name.split(":")[0]) != -1) });
-            attrCollector.forEach(attr => {
-                node.removeAttribute(attr.name);
-                node.setAttribute(attr.name === "value" ? "v-value" : attr.name, attr.value.replace(this.forArgs[0], complexKey));
+        let vForObject = StrategyPool.val(this.mia.data, this.scope);// 获取被for的对象/数组
+        if (!(vForObject instanceof Object)) return;// 如果获取到的值不是一个对象，可能就是单纯的一个值，终止执行
+        let nkeys = [].slice.call(Object.keys(vForObject)).filter(key => { return (["push", "__prefix__", "splice", "I_isProxy_I"].indexOf(key) === -1) });
+        // 新的对象或数组的key比上一次的少，说明上一次的元素需要清理，这里则是将这些多余的旧key过滤出来，然后移除元素，删除对应的处理器
+        let discardKey = [].slice.call(Object.keys(this.generatedNode)).filter(key => { return nkeys.indexOf(key) === -1 });
+        if (discardKey) {
+            discardKey.forEach(key => {
+                let discardNode = this.generatedNode[key];
+                VForProcessor.eachDiscard(discardNode);
+                discardNode.remove();// todo　可能有浏览器兼容问题
+                delete this.generatedNode[key];
+                StrategyPool.invalidKey(this.scope + "." + key, this.mia.sp.pool);// todo 在这里移除无效key，有可能引发问题，比如在其他地方也引用了这个key，需要继续判断这个key是否无效
             })
-            this.generatedNode.push(node);
-            this.fragment.appendChild(node);
+        }
+        // 遍历新的对象或数组的所有key，如果这个key已经有一个生成的元素，则保留这个元素，如果新对象的key不存在于旧的对象中，则创建一个新的元素。
+        let newNodes = [];
+        for (let key of nkeys) {// 对这个对象进行循环，在循环的过程中根据原始的元素克隆出一个新的元素，然后对这个新的元素进行处理，将其中的key替换成其应该引用的key
+            // 如果之前生成过一样的元素
+            let oldNode = this.generatedNode[key];
+            if (oldNode) continue; // todo 如果不创建新的元素，之后是否会有问题，可能需要解决
+            let newNode = VForProcessor.eachNode(this.nodeSource.cloneNode(true), this.nExp, key, this.scope, this.forArgs);
+            this.generatedNode[key] = newNode; this.fragment.appendChild(newNode); newNodes.push(newNode);
         }
         this.root.insertBefore(this.fragment, this.anchorNode);
-        this.generatedNode.forEach(node => { this.mia.eachNode(node); })
+        newNodes.forEach(node => { this.mia.eachNode(node) });
+    }
+
+
+    // todo scope原型
+    static eachNode(node, exp, key, scope, forArgs) {
+        let complexKey = scope + "." + key;
+        switch (node.nodeType) {
+            // 普通元素
+            case Node.TEXT_NODE:
+                let text = node.textContent;
+                node.textContent = text.replace(exp, `$1${complexKey}$3$4`);
+                break;
+            // 文本节点
+            case Node.ELEMENT_NODE:
+                let attrCollector = [].filter.call(node.attributes, attr => { return (["v-model", "value", "v-value"].indexOf(attr.name.split(":")[0]) != -1) });
+                attrCollector.forEach(attr => {
+                    node.removeAttribute(attr.name);
+                    node.setAttribute(attr.name === "value" ? "v-value" : attr.name, attr.value.replace(forArgs[0], complexKey));
+                })
+                break;
+        }
+        // 递归
+        let childNodes;
+        if (node.hasChildNodes() && (childNodes = node.childNodes)) {
+            for (let index = 0; index < childNodes.length; index++) {
+                VForProcessor.eachNode(childNodes[index], exp, key, scope, forArgs);
+            }
+        }
+        return node;
+    }
+
+    static eachDiscard(node) {
+        node.__discard__ = true; node.hasChildNodes && (node.childNodes.forEach(node => VForProcessor.eachDiscard(node)));
     }
 
     init() {
