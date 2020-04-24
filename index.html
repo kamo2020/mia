@@ -65,6 +65,10 @@
             <button v-on:click="say4">方法内部this指向测试</button>
 
             <button v-on:click="say5">方法引用方法测试</button>
+
+            <button v-on:click="say6">方法的事件测试</button>
+
+            <button v-on:click="say7('呱呱', 34)">带参方法的事件测试</button>
         </div>
 
 
@@ -163,6 +167,12 @@
             },
             say5: function () {
                 this.say1();
+            },
+            say6: function (event) {
+                console.log(event);
+            },
+            say7: function (text, num, event) {
+                alert(`参数1文本为 : ${text}，参数2数字为 : ${num}，参数3为事件，该事件类型为 : ${event.type}`);
             },
             setCurrRoom: function () {
                 this.currRoom = this.rooms[0];

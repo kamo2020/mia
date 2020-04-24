@@ -219,7 +219,7 @@ class StrategyPool {
         // 收集有用属性
         let attrCollector = [].filter.call(element.attributes, (attr) => { return (this.specialAttrs.indexOf(attr.name.split(":")[0]) != -1) });
         // 有用属性为0，结束
-        if (attrCollector.length == 0) return;
+        if (attrCollector.length === 0) return;
         // 排序，让某个属性优先执行比如v-for
         attrCollector.sort((a, b) => { return (this.specialAttrs.indexOf(a.name.split(":")[0]) < this.specialAttrs.indexOf(b.name.split(":")[0])) ? -1 : 1 });
 
@@ -305,7 +305,7 @@ class StrategyPool {
     // v-on开头的属性处理策略，适配多种方法的调用，例如:无参，有参，参数为引用MIA options中的data数据的
     methodProcess(attrVal, arrtName, element) {
         if (this.exp.key.test(attrVal)) {// 如果是单纯的变量名类型，表示调用的是无参方法，直接添加事件即可
-            element.addEventListener(arrtName.split(":")[1], () => { Reflect.apply(this.mia.method[attrVal], this.mia.data, []) });
+            element.addEventListener(arrtName.split(":")[1], (event) => { Reflect.apply(this.mia.method[attrVal], this.mia.data, [event]) });
         } else if (this.exp.methodWithParam.test(attrVal)) {// 如果该字符串中类似("method(str)"),说明调用的是带参数的方法
             // 提取该字符串中表示参数的部分，最终变成一个参数数组，但是这个数组全部都是字符串类型的数据，因此需要继续处理
             let params = attrVal.match(this.exp.extractParam)[1].split(this.exp.splitParam);
@@ -330,7 +330,7 @@ class StrategyPool {
             // 该事件要执行的方法 this.method[attrVal.match(this.exp.extractMethodName)[1]]
             // 参数列表 (...[].map.call(args, (arg) => { return arg() })) }) 将args转换为真正的参数
             element.addEventListener(arrtName.split(":")[1],
-                () => { Reflect.apply(this.mia.method[attrVal.match(this.exp.extractMethodName)[1]], this.mia.data, [].map.call(args, (arg) => { return arg() })) }
+                (event) => { Reflect.apply(this.mia.method[attrVal.match(this.exp.extractMethodName)[1]], this.mia.data, [...([].map.call(args, (arg) => arg())), event]) }
             )
         } else {
             console.log("运算表达式待处理！");
