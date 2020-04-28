@@ -12,14 +12,14 @@
     <div id="el">
         <div>
             <h1>{{ title }} 和 {{ content }}</h1>
-            <input type="text" v-model="title" style="width: 250px; height: 20px; border: 1px solid red"
+            <input type="text" mia="model: title" style="width: 250px; height: 20px; border: 1px solid red"
                 placeholder="输入测试绑定title">
-            <input type="text" v-model="title" style="width: 250px; height: 20px; border: 1px solid red"
+            <input type="text" mia="model: title" style="width: 250px; height: 20px; border: 1px solid red"
                 placeholder="输入测试绑定title">
         </div>
         <div class="checkbox">
             <label>
-                <input type="checkbox" v-model="lever">
+                <input type="checkbox" mia="model: lever">
                 Checkbox : {{ lever }}
             </label>
         </div>
@@ -27,61 +27,59 @@
         <div>
             <h1>多级引用测试</h1>
             <h1>{{ more.m3 }}</h1>
-            <input type="text" v-model="more.m3" style="width: 250px; height: 20px; border: 1px solid red"
+            <input type="text" mia="model: more.m3" style="width: 250px; height: 20px; border: 1px solid red"
                 placeholder="输入测试绑定二级">
         </div>
-
-
 
         <div>
             <h1>radio测试，以及多级引用测试</h1>
             <span>选择的是<span style="color: rgb(247, 76, 46); background-color: cyan;">{{ radio.r1 }}</span>, 请选择</span>
             <label>
-                <input type="radio" name="radio.r1" id="input" value="东瓜" v-model="radio.r1">
+                <input type="radio" name="radio.r1" id="input" value="东瓜" mia="model: radio.r1">
                 东瓜
             </label>
             <label>
-                <input type="radio" name="radio.r1" id="input" value="西瓜" v-model="radio.r1">
+                <input type="radio" name="radio.r1" id="input" value="西瓜" mia="model: radio.r1">
                 西瓜
             </label>
             <label>
-                <input type="radio" name="radio.r1" id="input" value="南瓜" v-model="radio.r1">
+                <input type="radio" name="radio.r1" id="input" value="南瓜" mia="model: radio.r1">
                 南瓜
             </label>
             <label>
-                <input type="radio" name="radio.r1" id="input" value="北瓜" v-model="radio.r1">
+                <input type="radio" name="radio.r1" id="input" value="北瓜" mia="model: radio.r1">
                 北瓜(我们那这样称呼南瓜)
             </label>
         </div>
 
         <div>
             <h1>多种方法测试</h1>
-            <button v-on:click="say1">方法测试</button>
+            <button mia="event: click>say1">方法测试</button>
 
-            <button v-on:click="say2('毛毛虫', '西瓜虫', 421, '蜜蜂')">带参方法测试</button>
+            <button mia="event: click>say2('毛毛虫', '西瓜虫', 421, '蜜蜂')">带参方法测试</button>
 
-            <button v-on:click="say3(title, more.m1)">带引用对象参数方法测试</button>
+            <button mia="event: click>say3(title, more.m1)">带引用对象参数方法测试</button>
 
-            <button v-on:click="say4">方法内部this指向测试</button>
+            <button mia="event: click>say4">方法内部this指向测试</button>
 
-            <button v-on:click="say5">方法引用方法测试</button>
+            <button mia="event: click>say5">方法引用方法测试</button>
 
-            <button v-on:click="say6">方法的事件测试</button>
+            <button mia="event: click>say6">方法的事件测试</button>
 
-            <button v-on:click="say7('呱呱', 34)">带参方法的事件测试</button>
+            <button mia="event: click>say7('呱呱', 34)">带参方法的事件测试</button>
         </div>
 
 
         <div>
             <h1>checkbox数组测试</h1>
             <label>
-                <input type="checkbox" name="cb1" v-model="cBoxs" value="大白兔">大白兔
+                <input type="checkbox" name="cb1" mia="model: cBoxs" value="大白兔">大白兔
             </label>
             <label>
-                <input type="checkbox" name="cb2" v-model="cBoxs" value="小红帽">小红帽
+                <input type="checkbox" name="cb2" mia="model: cBoxs" value="小红帽">小红帽
             </label>
             <label>
-                <input type="checkbox" name="cb3" v-model="cBoxs" value="中之人">中之人
+                <input type="checkbox" name="cb3" mia="model: cBoxs" value="中之人">中之人
             </label>
             所选择的是：
             <span style="color: chocolate;">{{ cBoxs }}</span>
@@ -93,39 +91,39 @@
         <div>
             <h2>v-for测试1，简单的数组中数据的引用</h2>
             <select name="city">
-                <option v-for="city in cities" value="city">{{ city }}</option>
+                <option mia="each: city<cities; value: city;">{{ city }}</option>
             </select>
             <h2>v-for测试2，数组中对象的引用</h2>
-            <span v-for="room in rooms" value="room.name">【room.name:{{ room.name }}】</span>
+            <span mia="each: room<rooms; value: room">【room.name:{{ room.name }}】</span>
         </div>
 
         <div>
             <h1>同一对象被其他多个对象引用，测试</h1>
             <span>引用currRoom.name: {{ currRoom.name }}</span>
-            <input type="text" v-model="currRoom.name" width="300px">
-            <button v-on:click="setCurrRoom">引用上面房子列表的第一个房子的数据</button>
+            <input type="text" mia="model: currRoom.name" width="300px">
+            <button mia="event: click>setCurrRoom;">引用上面房子列表的第一个房子的数据</button>
         </div>
 
         <div>
             <h1>数组重新赋值与v-for测试</h1> 数组长度{{ arr1.length }}
-            <button v-on:click="reArray">给该数组直接赋值一个数组</button>
-            <button v-on:click="reArray1">给该数组添加一个值</button>
-            <span v-for="text in arr1">[ {{ text }} ] | </span>
+            <button mia="event:click>reArray;">给该数组直接赋值一个数组</button>
+            <button mia="event:click>reArray1;">给该数组添加一个值</button>
+            <span mia="each: text<arr1;">[ {{ text }} ] | </span>
         </div>
 
         <div>
             <h1>对象内部为数组的变动检测</h1>
             <span>姓名: {{ arr2.name }}, 年龄: {{ arr2.age }}, waifu数量: {{ arr2.waifus.length }}</span>,
-            waifus: <span v-for="waifu in arr2.waifus">[{{ waifu }}] | </span>
-            <button v-on:click="reArray2">重新赋值整个对象</button>
+            waifus: <span mia="each: waifu<arr2.waifus;">[{{ waifu }}] | </span>
+            <button mia="event: click>reArray2;">重新赋值整个对象</button>
         </div>
 
         <div>
             <h1>v-for子元素测试</h1>
-            <div v-for="room in rooms">
+            <div mia="each: room<rooms">
                 {{ room.name }}
                 <span>{{ room.name }}</span>
-                <input type="text" v-model="room.name">
+                <input type="text" mia="model: room.name">
             </div>
         </div>
     </div>

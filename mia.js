@@ -114,6 +114,21 @@ class MIA {
     }
 }
 
+// 正则表达式
+const _RegExpPool = {
+    text: /\{\{\s?(.[^\}\s]*)\s?\}\}/,
+    key: /^[\w\d\._]+$/,
+    methodWithParam: /[\w\d]+\(.+\)$/,
+    extractMethodName: /^([\w\d]+)\(.*/,
+    extractParam: /[\w\d]+\([\s]?(.*)[\s]?\)$/,
+    splitParam: /,\s*/,
+    integerExp: /^\d+$/,
+    stringExp: /^["']{1}(.+)["']{1}$/,
+    referenceExp: /^[\w\d\._]+$/,
+    eachExpression: /^[\s\(]*([^\)]*)[\s\)]*<\s*([\d\w\._]*)\s?$/,
+    eachAttr: /each:[^;]*;?/
+};
+
 // 策略池，当初始化时，遍历每一个元素时都会通过策略池来决定要注册的事件
 class StrategyPool {
     constructor(mia) {
@@ -121,76 +136,89 @@ class StrategyPool {
         this.mia = mia;
         // 策略池，{key : [processor1, processor2..], key2: {processor1, processor2..}}
         this.pool = {};
-        // 正则表达式
-        this.exp = {
-            text: /\{\{\s?(.[^\}\s]*)\s?\}\}/,
-            key: /^[\w\d\._]+$/,
-            method: /^v-on\:\w+/,
-            methodWithParam: /[\w\d]+\(.+\)$/,
-            extractMethodName: /^([\w\d]+)\(.*/,
-            extractParam: /[\w\d]+\([\s]?(.*)[\s]?\)$/,
-            splitParam: /,\s*/,
-            integerExp: /^\d+$/,
-            stringExp: /^["']{1}(.+)["']{1}$/,
-            referenceExp: /^[\w\d\._]+$/,
-            vFor: /v-for/,
-            vForExtract: /^[\s\(]*([^\)]*)[\s\)]*in\s*([\d\w\._]*)\s?$/
-        }
+
         // 特定属性
-        this.specialAttrs = ["v-for", "v-model", "v-value", "v-text", "v-on"];
+        this.specialAttrs = ["each", "model", "value", "text", "event"];
 
         // 拥有该属性的元素的渲染方式，当options.data中的字段的值被修改后自动执行对应方法修改该元素的相关内容
-        this.specialMethod = {
-            "v-model": function (element) {
+        // 拥有该属性的元素的初始化方法，修改该元素的相关内容为options.data中对应的字段的值，并且注册事件
+        this.specialInitMethod = {
+            "model": function (attrVal, element) {
+                let key;
                 switch (element.type) {
                     case "checkbox":
-                        let sameCheckBox = document.querySelectorAll("input[type='checkbox'][v-model='" + element.getAttribute("v-model") + "']");
-                        if (sameCheckBox.length > 1) {
-                            return (packet) => { packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key).indexOf(packet.node.value) != -1) ? "checked" : "" }
-                        } else {
-                            return (packet) => { packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key)) ? "checked" : "" };
-                        }
+                        let sameCheckBox = document.querySelectorAll("input[type='checkbox'][mia~='" + attrVal + "']");
+                        key = sameCheckBox.length > 1 ? "complexCheckBox" : "singleCheckBox";
+                        break;
                     case "radio":
-                        return (packet) => { packet.node.checked = (packet.node.value === StrategyPool.val(packet.mia.data, packet.key)) ? "checked" : "" };
+                        key = "radio";
+                        break;
                     default:
-                        return (packet) => { packet.node.value = StrategyPool.val(packet.mia.data, packet.key) };
+                        key = "common";
                 }
+                let processors = this.pool[attrVal] || (this.pool[attrVal] = []);
+                processors.push(new ElementProcessor(attrVal, element, this.mia, this.setter[key], this.trigger[key]));
             },
-            "v-value": function (element) {
-                return (packet) => { packet.node.value = StrategyPool.val(packet.mia.data, packet.key) }
+            "value": function (attrVal, element) {
+                let processors = this.pool[attrVal] || (this.pool[attrVal] = []);
+                processors.push(new ElementProcessor(attrVal, element, this.mia, this.setter["value"], this.trigger["value"]));
+            },
+            "each": function (expression, element) {
+                let [keyExpression, eachSource] = [].slice.call(expression.match(_RegExpPool.eachExpression), 1);
+                let anchorNode = document.createElement("anchor");
+                element.parentNode.replaceChild(anchorNode, element);
+                let processor = new EachProcessor(element.cloneNode(true), anchorNode, this.mia, eachSource, keyExpression);
+                let processors = this.pool[eachSource] || (this.pool[eachSource] = []);
+                processors.push(processor);
+                element.__discard__ = true;// 丢弃该元素不再继续处理
+            },
+            "event": function (expression, element) {
+                let [eventName, methodExpression] = [].map.call(expression.split(">"), expression => expression.trim());
+                if (_RegExpPool.key.test(methodExpression)) {// 如果是单纯的变量名类型，表示调用的是无参方法，直接添加事件即可
+                    element.addEventListener(eventName, (event) => { Reflect.apply(this.mia.method[methodExpression], this.mia.data, [event]) });
+                }
+                else if (_RegExpPool.methodWithParam.test(methodExpression)) {// 如果该字符串中类似("method(str)"),说明调用的是带参数的方法
+                    // 提取该字符串中表示参数的部分，最终变成一个参数数组，但是这个数组全部都是字符串类型的数据，因此需要继续处理
+                    let params = methodExpression.match(_RegExpPool.extractParam)[1].split(_RegExpPool.splitParam);
+                    // 这个数组存储的是上面的参数的处理方法，当调用后的返回值是真正的参数
+                    let args = [];
+                    for (let index = 0; index < params.length; index++) {
+                        let param = params[index];
+                        if (_RegExpPool.integerExp.test(param)) {// 如果该参数是纯数字，解析该数字即可 todo double类型的还不支持
+                            param = parseInt(param);
+                            // 这里实际存储的是一个方法，当调用该方法后才返回真正的参数，这样做是为了适配引用类型的数据，因为引用类型的数据的动态的，每次执行的结果都不同
+                            args[index] = () => { return param };
+                        } else if (_RegExpPool.stringExp.test(param)) {// 如果该参数是字符串类型的，类似这种('西瓜')
+                            param = param.replace(/["']/g, "");
+                            args[index] = () => { return param };
+                        } else if (_RegExpPool.referenceExp.test(param)) {// 如果该参数是引用数据类型的，只是单纯的变量名(title, more.m1)
+                            args[index] = () => { return StrategyPool.val(this.mia.data, param) };
+                        }
+                    }
+                    // 当参数处理完毕后，得到一个args数组，这个数组中存储的都是方法，当调用后获取真正的参数
+                    // arrtName.split(":")[1] 这里会得到事件类型(click, input, change)
+                    // () => { this.method[attrVal.match(this.exp.extractMethodName)[1]](...[].map.call(args, (arg) => { return arg() })) }
+                    // 该事件要执行的方法 this.method[attrVal.match(this.exp.extractMethodName)[1]]
+                    // 参数列表 (...[].map.call(args, (arg) => { return arg() })) }) 将args转换为真正的参数
+                    element.addEventListener(eventName, (event) => { Reflect.apply(this.mia.method[methodExpression.match(_RegExpPool.extractMethodName)[1]], this.mia.data, [...([].map.call(args, (arg) => arg())), event]) });
+                }
             }
         };
 
-        // 拥有该属性的元素的初始化方法，修改该元素的相关内容为options.data中对应的字段的值，并且注册事件
-        this.specialInitMethod = {
-            "v-model": function (element) {
-                switch (element.type) {
-                    case "checkbox":
-                        let sameCheckBox = document.querySelectorAll("input[type='checkbox'][v-model='" + element.getAttribute("v-model") + "']");
-                        if (sameCheckBox.length > 1) {
-                            return (packet) => {
-                                packet.node.addEventListener("click", () => {
-                                    let value = StrategyPool.val(packet.mia.data, packet.key);
-                                    if (packet.node.checked) {
-                                        value.push(packet.node.value);
-                                    } else {
-                                        let index = value.indexOf(packet.node.value);
-                                        if (index != -1) { value.splice(index, 1) }
-                                    }
-                                });
-                            }
-                        } else {
-                            return (packet) => { packet.node.addEventListener("click", () => { StrategyPool.val(packet.mia.data, packet.key, (packet.node.checked)) }) };
-                        }
-                    case "radio":
-                        return (packet) => { packet.node.addEventListener("click", () => { StrategyPool.val(packet.mia.data, packet.key, packet.node.value) }) };
-                    default:
-                        return (packet) => { packet.node.addEventListener("input", () => { StrategyPool.val(packet.mia.data, packet.key, packet.node.value) }) };
-                }
-            },
-            "v-value": function (element) {
-                return (packet) => { packet.method(packet) };
-            }
+        this.trigger = {
+            "complexCheckBox": (packet) => { packet.node.addEventListener("click", () => { let value = StrategyPool.val(packet.mia.data, packet.key); if (packet.node.checked) { value.push(packet.node.value) } else { value.indexOf(packet.node.value) != -1 && value.splice(value.indexOf(packet.node.value), 1) } }); },
+            "singleCheckBox": (packet) => { packet.node.addEventListener("click", () => { StrategyPool.val(packet.mia.data, packet.key, (packet.node.checked)) }) },
+            "radio": (packet) => { packet.node.addEventListener("click", () => { StrategyPool.val(packet.mia.data, packet.key, packet.node.value) }) },
+            "common": (packet) => { packet.node.addEventListener("input", () => { StrategyPool.val(packet.mia.data, packet.key, packet.node.value) }) },
+            "value": (packet) => { packet.method(packet) }
+        };
+
+        this.setter = {
+            "complexCheckBox": (packet) => { packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key).indexOf(packet.node.value) != -1) ? "checked" : "" },
+            "singleCheckBox": (packet) => { packet.node.checked = (StrategyPool.val(packet.mia.data, packet.key)) ? "checked" : "" },
+            "radio": (packet) => { packet.node.checked = (packet.node.value === StrategyPool.val(packet.mia.data, packet.key)) ? "checked" : "" },
+            "common": (packet) => { packet.node.value = StrategyPool.val(packet.mia.data, packet.key) },
+            "value": (packet) => { packet.node.value = StrategyPool.val(packet.mia.data, packet.key) }
         };
     }
 
@@ -200,50 +228,32 @@ class StrategyPool {
         let tempTxt = node.textContent; // 此处获取该文本节点的内容，用来查询其中出现的所有key，即options中的data字段
         let keys = []; // 当前文本中包含的所有key，即options中的data的字段
         let PcSorCollector = []; // 用于收集每个key对应的处理器集合，相当于二维数组
-        while (this.exp.text.test(tempTxt)) {
-            let key = this.exp.text.exec(tempTxt)[1].trim();
-            if (this.exp.key.test(key)) {//如果是纯字母组合
+        while (_RegExpPool.text.test(tempTxt)) {
+            let key = _RegExpPool.text.exec(tempTxt)[1].trim();
+            if (_RegExpPool.key.test(key)) {//如果是纯字母组合
                 let processors = (this.pool[key]) || (this.pool[key] = []);
                 keys.push(key);
                 PcSorCollector.push(processors);
-                //消除当前key
+                // 消除当前key
                 tempTxt = tempTxt.replace(new RegExp("\\{\\{\\s?(" + key + "[^\\}\\s]*)\\s?\\}\\}", "gm"), "")
-            } else {//todo 运算符处理
-                console.log("运算符待处理");
             }
         };
         PcSorCollector.forEach(processors => { processors.push(new TextProcessor(keys, node, txt, this.mia)) });
     }
 
     elementNodeRegister(element) {
-        // 收集有用属性
-        let attrCollector = [].filter.call(element.attributes, (attr) => { return (this.specialAttrs.indexOf(attr.name.split(":")[0]) != -1) });
-        // 有用属性为0，结束
-        if (attrCollector.length === 0) return;
-        // 排序，让某个属性优先执行比如v-for
-        attrCollector.sort((a, b) => { return (this.specialAttrs.indexOf(a.name.split(":")[0]) < this.specialAttrs.indexOf(b.name.split(":")[0])) ? -1 : 1 });
+        // 获取该元素上的属性(mia)，如果没有该属性则返回，该元素不是要被处理的元素
+        const expression = element.getAttribute("mia");
+        if (!expression) return;
+        // 解析mia属性的值为map
+        let attrs = new Map();
+        [].map.call(expression.split(";"),
+            subExpression => subExpression.trim().split(":"))
+            .forEach(subExpression =>
+                attrs.set(subExpression[0] ? subExpression[0].trim() : "error", subExpression[1] ? subExpression[1].trim() : null))
 
-        for (let index = 0; index < attrCollector.length; index++) {
-            const attr = attrCollector[index];
-            const key = attr.value.trim(); const name = attr.name;
-            // 如果通过该属性是v-on开头的，则直接注册相关事件即可
-            if (this.exp.method.test(name)) {
-                this.methodProcess(key, name, element);
-            } // 如果该属性是v-for则进行复杂的处理
-            else if (this.exp.vFor.test(name)) {
-                this.vForProcess(key, element);
-                element.__discard__ = true;// 丢弃该元素不再继续处理
-                break;
-            } // 如果该属性不是v-on开头的，并且该属性的值(key)只是简单的变量名，则为该元素创建对应的setter事件
-            else if (this.exp.key.test(key)) {
-                // 获取该key在策略池中保存的策略组，然后将新的策略添加到组中
-                let processors = this.pool[key] || (this.pool[key] = []);
-                processors.push(new ElementProcessor(key, element, this.mia, this.specialMethod[name](element), this.specialInitMethod[name](element)));
-            } //todo 运算符处理
-            else {
-                console.log("运算符待处理");
-            }
-        }
+        // 遍历this.specialAttrs，约定的子属性数组
+        for (let attr of this.specialAttrs) { attrs.has(attr) && Reflect.apply(this.specialInitMethod[attr], this, [attrs.get(attr), element]) }
     }
 
     // 通过复杂key(options.data.more.m1)从options.data中对应的字段设置的值
@@ -288,8 +298,8 @@ class StrategyPool {
             let discard = [];
             for (let index = processors.length - 1; index > -1; index--) {
                 const processor = processors[index];
-                // 如果该策略处理器不是V-FOR的处理器，并且这个策略处理器对应的node已经是被放弃的node，那么记录该策略处理器所在的索引，当循环完毕后，将会根据这些索引将这些策略处理器删除掉
-                if (!(processor instanceof VForProcessor) && (processor.node) && (processor.node.__discard__)) {
+                // 如果该策略处理器不是each的处理器，并且这个策略处理器对应的node已经是被放弃的node，那么记录该策略处理器所在的索引，当循环完毕后，将会根据这些索引将这些策略处理器删除掉
+                if (!(processor instanceof EachProcessor) && (processor.node) && (processor.node.__discard__)) {
                     discard.push(index); continue;
                 }
                 processor.do();
@@ -300,51 +310,6 @@ class StrategyPool {
 
     static invalidKey(invalidKey, pool) {
         delete pool[invalidKey];
-    }
-
-    // v-on开头的属性处理策略，适配多种方法的调用，例如:无参，有参，参数为引用MIA options中的data数据的
-    methodProcess(attrVal, arrtName, element) {
-        if (this.exp.key.test(attrVal)) {// 如果是单纯的变量名类型，表示调用的是无参方法，直接添加事件即可
-            element.addEventListener(arrtName.split(":")[1], (event) => { Reflect.apply(this.mia.method[attrVal], this.mia.data, [event]) });
-        } else if (this.exp.methodWithParam.test(attrVal)) {// 如果该字符串中类似("method(str)"),说明调用的是带参数的方法
-            // 提取该字符串中表示参数的部分，最终变成一个参数数组，但是这个数组全部都是字符串类型的数据，因此需要继续处理
-            let params = attrVal.match(this.exp.extractParam)[1].split(this.exp.splitParam);
-            // 这个数组存储的是上面的参数的处理方法，当调用后的返回值是真正的参数
-            let args = [];
-            for (let index = 0; index < params.length; index++) {
-                let param = params[index];
-                if (this.exp.integerExp.test(param)) {// 如果该参数是纯数字，解析该数字即可 todo double类型的还不支持
-                    param = parseInt(param);
-                    // 这里实际存储的是一个方法，当调用该方法后才返回真正的参数，这样做是为了适配引用类型的数据，因为引用类型的数据的动态的，每次执行的结果都不同
-                    args[index] = () => { return param };
-                } else if (this.exp.stringExp.test(param)) {// 如果该参数是字符串类型的，类似这种('西瓜')
-                    param = param.replace(/["']/g, "");
-                    args[index] = () => { return param };
-                } else if (this.exp.referenceExp.test(param)) {// 如果该参数是引用数据类型的，只是单纯的变量名(title, more.m1)
-                    args[index] = () => { return StrategyPool.val(this.mia.data, param) };
-                }
-            }
-            // 当参数处理完毕后，得到一个args数组，这个数组中存储的都是方法，当调用后获取真正的参数
-            // arrtName.split(":")[1] 这里会得到事件类型(click, input, change)
-            // () => { this.method[attrVal.match(this.exp.extractMethodName)[1]](...[].map.call(args, (arg) => { return arg() })) }
-            // 该事件要执行的方法 this.method[attrVal.match(this.exp.extractMethodName)[1]]
-            // 参数列表 (...[].map.call(args, (arg) => { return arg() })) }) 将args转换为真正的参数
-            element.addEventListener(arrtName.split(":")[1],
-                (event) => { Reflect.apply(this.mia.method[attrVal.match(this.exp.extractMethodName)[1]], this.mia.data, [...([].map.call(args, (arg) => arg())), event]) }
-            )
-        } else {
-            console.log("运算表达式待处理！");
-        }
-    }
-
-    // v-for的特殊处理，
-    vForProcess(attrVal, element) {
-        let blackMagic = [].slice.call(attrVal.match(this.exp.vForExtract), 1);
-        let anchorNode = document.createElement("anchor");
-        element.parentNode.replaceChild(anchorNode, element);
-        let processor = new VForProcessor(element.cloneNode(true), anchorNode, this.mia, blackMagic[1], blackMagic[0].split(/[,\s]+/));
-        let processors = this.pool[blackMagic[1]] || (this.pool[blackMagic[1]] = []);
-        processors.push(processor);
     }
 }
 
@@ -394,32 +359,32 @@ class ElementProcessor {
     }
 }
 
-class VForProcessor {
-    constructor(nodeSource, anchorNode, mia, scope, forArgs) {
+class EachProcessor {
+    constructor(nodeSource, anchorNode, mia, scope, keyExpression) {
         this.nodeSource = nodeSource;
-        this.nodeSource.removeAttribute("v-for")
+        this.nodeSource.setAttribute("mia", this.nodeSource.getAttribute("mia").replace(_RegExpPool.eachAttr, ""));
         this.anchorNode = anchorNode;
         this.root = this.anchorNode.parentNode;
         this.generatedNode = {};
         this.mia = mia;
         this.scope = scope;
-        this.forArgs = forArgs;
-        this.nExp = new RegExp(`(\\{{2}\\s?)(${this.forArgs[0]})([\\.\\w\\d]*)(\\s?\\}{2})`, "gm");
+        this.keyExpression = keyExpression;
+        this.nExp = new RegExp(`(\\{{2}\\s?)(${this.keyExpression})([\\.\\w\\d]*)(\\s?\\}{2})`, "gm");
         this.fragment = document.createDocumentFragment();
-        this._equalBasis = "VForProcessor";
+        this._equalBasis = "EachProcessor";
         this.init();
     }
 
     do() {
-        let vForObject = StrategyPool.val(this.mia.data, this.scope);// 获取被for的对象/数组
-        if (!(vForObject instanceof Object)) return;// 如果获取到的值不是一个对象，可能就是单纯的一个值，终止执行
-        let nkeys = [].slice.call(Object.keys(vForObject)).filter(key => { return (["push", "__prefix__", "splice", "I_isProxy_I"].indexOf(key) === -1) });
+        let eachSource = StrategyPool.val(this.mia.data, this.scope);// 获取被for的对象/数组
+        if (!(eachSource instanceof Object)) return;// 如果获取到的值不是一个对象，可能就是单纯的一个值，终止执行
+        let nkeys = [].slice.call(Object.keys(eachSource)).filter(key => { return (["push", "__prefix__", "splice", "I_isProxy_I"].indexOf(key) === -1) });
         // 新的对象或数组的key比上一次的少，说明上一次的元素需要清理，这里则是将这些多余的旧key过滤出来，然后移除元素，删除对应的处理器
         let discardKey = [].slice.call(Object.keys(this.generatedNode)).filter(key => { return nkeys.indexOf(key) === -1 });
         if (discardKey) {
             discardKey.forEach(key => {
                 let discardNode = this.generatedNode[key];
-                VForProcessor.eachDiscard(discardNode);
+                EachProcessor.eachDiscard(discardNode);
                 discardNode.remove();// todo　可能有浏览器兼容问题
                 delete this.generatedNode[key];
                 StrategyPool.invalidKey(this.scope + "." + key, this.mia.sp.pool);// todo 在这里移除无效key，有可能引发问题，比如在其他地方也引用了这个key，需要继续判断这个key是否无效
@@ -431,7 +396,7 @@ class VForProcessor {
             // 如果之前生成过一样的元素
             let oldNode = this.generatedNode[key];
             if (oldNode) continue; // todo 如果不创建新的元素，之后是否会有问题，可能需要解决
-            let newNode = VForProcessor.eachNode(this.nodeSource.cloneNode(true), this.nExp, key, this.scope, this.forArgs);
+            let newNode = EachProcessor.eachNode(this.nodeSource.cloneNode(true), this.nExp, key, this.scope, this.keyExpression);
             this.generatedNode[key] = newNode; this.fragment.appendChild(newNode); newNodes.push(newNode);
         }
         this.root.insertBefore(this.fragment, this.anchorNode);
@@ -440,35 +405,34 @@ class VForProcessor {
 
 
     // todo scope原型
-    static eachNode(node, exp, key, scope, forArgs) {
+    static eachNode(node, exp, key, scope, keyExpression) {
         let complexKey = scope + "." + key;
         switch (node.nodeType) {
             // 普通元素
-            case Node.TEXT_NODE:
+            case Node.TEXT_NODE: {
                 let text = node.textContent;
-                node.textContent = text.replace(exp, `$1${complexKey}$3$4`);
+                if (_RegExpPool.text.test(text)) node.textContent = text.replace(exp, `$1${complexKey}$3$4`);
                 break;
+            }
             // 文本节点
-            case Node.ELEMENT_NODE:
-                let attrCollector = [].filter.call(node.attributes, attr => { return (["v-model", "value", "v-value"].indexOf(attr.name.split(":")[0]) != -1) });
-                attrCollector.forEach(attr => {
-                    node.removeAttribute(attr.name);
-                    node.setAttribute(attr.name === "value" ? "v-value" : attr.name, attr.value.replace(forArgs[0], complexKey));
-                })
+            case Node.ELEMENT_NODE: {
+                let miaAttr;
+                if (miaAttr = node.getAttribute("mia")) node.setAttribute("mia", miaAttr.replace(keyExpression, complexKey));
                 break;
+            }
         }
         // 递归
         let childNodes;
         if (node.hasChildNodes() && (childNodes = node.childNodes)) {
             for (let index = 0; index < childNodes.length; index++) {
-                VForProcessor.eachNode(childNodes[index], exp, key, scope, forArgs);
+                EachProcessor.eachNode(childNodes[index], exp, key, scope, keyExpression);
             }
         }
         return node;
     }
 
     static eachDiscard(node) {
-        node.__discard__ = true; node.hasChildNodes && (node.childNodes.forEach(node => VForProcessor.eachDiscard(node)));
+        node.__discard__ = true; node.hasChildNodes && (node.childNodes.forEach(node => EachProcessor.eachDiscard(node)));
     }
 
     init() {
