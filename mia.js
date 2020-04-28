@@ -164,7 +164,7 @@ class StrategyPool {
                 processors.push(new ElementProcessor(attrVal, element, this.mia, this.setter["value"], this.trigger["value"]));
             },
             "each": function (expression, element) {
-                let [keyExpression, eachSource] = [].slice.call(expression.match(_RegExpPool.eachExpression), 1);
+                let [keyExpression, eachSource] = [].map.call(expression.split(/</), o => o.trim());
                 let anchorNode = document.createElement("anchor");
                 element.parentNode.replaceChild(anchorNode, element);
                 let processor = new EachProcessor(element.cloneNode(true), anchorNode, this.mia, eachSource, keyExpression);
